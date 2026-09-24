@@ -1,0 +1,4 @@
+Django>=5.0,<6.0
+gunicorn>=23.0
+psycopg[binary]>=3.2
+redis[hiredis]>=5.0

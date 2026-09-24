@@ -1,0 +1,34 @@
+# Drain worker moving orders from the Valkey stream into Postgres.
+# Installed by scripts/deploy.sh.
+#
+# A template: the instance name becomes the consumer id, so
+# ticketrush-dj-drain@1 runs "--worker-id drain-1". Start more with
+#   systemctl enable --now ticketrush-dj-drain@2
+[Unit]
+Description=Ticket Rush (Django) drain %i - Valkey stream to Postgres
+After=network-online.target postgresql.service valkey.service redis.service
+Wants=network-online.target
+# Keep retrying while Postgres or Valkey is down instead of giving up after
+# five quick failures.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=ticketrush
+Group=ticketrush
+WorkingDirectory=/opt/ha-ticket-rush-django
+EnvironmentFile=/opt/ha-ticket-rush-django/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/ha-ticket-rush-django/.venv/bin/python manage.py drain --worker-id drain-%i
+# Unacked entries stay pending in Valkey, so a hard stop loses nothing: the
+# next sweep reclaims them.
+Restart=always
+RestartSec=2
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

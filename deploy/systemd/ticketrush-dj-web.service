@@ -1,0 +1,40 @@
+# gunicorn serving the Django app. Installed by scripts/deploy.sh.
+#
+# Listens on unix:/run/ticketrush-dj/gunicorn.sock by default (see
+# gunicorn.conf.py). Put BIND=0.0.0.0:8001 in .env to listen on TCP instead.
+[Unit]
+Description=Ticket Rush (Django) web - gunicorn
+# Ordering only, no Requires=: Postgres and Valkey may live on other hosts.
+After=network-online.target postgresql.service valkey.service redis.service
+Wants=network-online.target
+
+[Service]
+# gunicorn sends READY=1 itself once the arbiter is up.
+Type=notify
+NotifyAccess=main
+User=ticketrush
+Group=ticketrush
+WorkingDirectory=/opt/ha-ticket-rush-django
+EnvironmentFile=/opt/ha-ticket-rush-django/.env
+# Creates /run/ticketrush-dj for the socket, owned by the service user.
+RuntimeDirectory=ticketrush-dj
+RuntimeDirectoryMode=0755
+# Start through the venv's python (a symlink to /usr/bin/python3, labelled
+# bin_t) rather than the .venv/bin/gunicorn script, so SELinux never has to
+# allow systemd to execute a file under /opt.
+ExecStart=/opt/ha-ticket-rush-django/.venv/bin/python -m gunicorn -c gunicorn.conf.py ticketrush.wsgi
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=mixed
+# gunicorn.conf.py has graceful_timeout = 30.
+TimeoutStopSec=35
+Restart=on-failure
+RestartSec=2
+LimitNOFILE=65536
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

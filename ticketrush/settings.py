@@ -35,7 +35,7 @@ if os.environ.get("FULL_MIDDLEWARE") == "1":
         "django.middleware.clickjacking.XFrameOptionsMiddleware",
     ]
 else:
-    MIDDLEWARE = []
+    MIDDLEWARE = ["tickets.metrics.PrometheusMiddleware"]
 
 ROOT_URLCONF = "ticketrush.urls"
 WSGI_APPLICATION = "ticketrush.wsgi.application"

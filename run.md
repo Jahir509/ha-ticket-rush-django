@@ -64,7 +64,7 @@ python manage.py drain --worker-id drain-1
 ```bash
 curl -s localhost:8001/readyz
 curl -s -X POST localhost:8001/events -H 'content-type: application/json' \
-  -d '{"name":"demo","total_tickets":100}'
+  -d '{"name":"demo","total_tickets":9999999999}'
 # use the event_id from the response:
 curl -s -X POST "localhost:8001/events/<event_id>/purchase?user_id=u1"
 curl -s localhost:8001/events/<event_id>/stats

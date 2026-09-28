@@ -25,6 +25,7 @@ if os.environ.get("FULL_MIDDLEWARE") == "1":
         "django.contrib.messages",
     ]
     MIDDLEWARE = [
+        "tickets.metrics.PrometheusMiddleware",
         "django.middleware.security.SecurityMiddleware",
         "django.contrib.sessions.middleware.SessionMiddleware",
         "django.middleware.common.CommonMiddleware",

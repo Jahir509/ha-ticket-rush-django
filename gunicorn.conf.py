@@ -45,3 +45,31 @@ max_requests = 0
 accesslog = None
 errorlog = "-"
 loglevel = "warning"
+
+
+# Append these to gunicorn.conf.py.
+#
+# Without child_exit, every worker that dies leaves its metric files behind
+# forever. MultiProcessCollector keeps summing them, so counters only ever
+# climb and a restart looks like a traffic spike. mark_process_dead cleans
+# up the counter and histogram files of that pid.
+ 
+def child_exit(server, worker):
+    from prometheus_client import multiprocess
+    multiprocess.mark_process_dead(worker.pid)
+ 
+ 
+def on_starting(server):
+    # Wipe stale files from a previous run. RuntimeDirectory already clears
+    # /run on stop, but this also covers a crash-restart.
+    import glob
+    import os
+ 
+    d = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
+    if d and os.path.isdir(d):
+        for f in glob.glob(os.path.join(d, "*.db")):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+ 

@@ -1,4 +1,10 @@
-Django>=5.0,<6.0
-gunicorn>=23.0
-psycopg[binary]>=3.2
-redis[hiredis]>=5.0
+asgiref==3.12.1
+Django==5.2.17
+gunicorn==26.2.0
+hiredis==3.4.2
+prometheus_client==0.26.0
+psycopg==3.3.6
+psycopg-binary==3.3.6
+redis==8.1.0
+sqlparse==0.6.0
+typing_extensions==4.16.0

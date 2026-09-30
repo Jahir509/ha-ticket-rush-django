@@ -1,0 +1,31 @@
+global:
+  scrape_interval: 5s      # ডেমোর জন্য দ্রুত; production-এ 15s রাখুন
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Prometheus নিজের metrics
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # আপনার Ticket Rush API — host মেশিনে uvicorn, port 8000
+  - job_name: ticket-rush
+    metrics_path: /analytics/metrics
+    static_configs:
+      - targets: ["10.2.116.112"]
+        labels:
+          service: ticket-rush
+          env: local
+
+  - job_name: ticketrush-dj
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['10.2.116.112:8001']
+        labels: { app: django, host: app-vm }
+
+  - job_name: ticketrush-api
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['10.2.116.112:80']
+        labels: { app: fastapi, host: app-vm }
+

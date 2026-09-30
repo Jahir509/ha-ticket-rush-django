@@ -1,0 +1,53 @@
+// Ships systemd journal logs from the app VM to Loki.
+//
+// The alloy user MUST be in the adm and systemd-journal groups. Without
+// them the component starts with no error at all and simply collects
+// nothing, which is a long way to debug:
+//   sudo usermod -aG adm,systemd-journal alloy
+
+loki.relabel "journal" {
+  forward_to = []
+
+  rule {
+    source_labels = ["__journal__systemd_unit"]
+    target_label  = "unit"
+  }
+  rule {
+    source_labels = ["__journal_priority_keyword"]
+    target_label  = "level"
+  }
+  rule {
+    source_labels = ["__journal__hostname"]
+    target_label  = "host"
+  }
+}
+
+loki.source.journal "ticketrush" {
+  forward_to    = [loki.write.central.receiver]
+  relabel_rules = loki.relabel.journal.rules
+  // Only our units. Dropping the rest of the journal keeps Loki small and
+  // the log panel readable.
+  matches       = "_SYSTEMD_UNIT=ticketrush-dj-web.service"
+  labels        = { job = "ticketrush", app = "django" }
+}
+
+loki.source.journal "ticketrush_drain" {
+  forward_to    = [loki.write.central.receiver]
+  relabel_rules = loki.relabel.journal.rules
+  matches       = "_SYSTEMD_UNIT=ticketrush-dj-drain@1.service"
+  labels        = { job = "ticketrush", app = "django-drain" }
+}
+
+loki.source.journal "ticketrush_api" {
+  forward_to    = [loki.write.central.receiver]
+  relabel_rules = loki.relabel.journal.rules
+  matches       = "_SYSTEMD_UNIT=ticketrush-api.service"
+  labels        = { job = "ticketrush", app = "fastapi" }
+}
+
+loki.write "central" {
+  endpoint {
+    // Replace with wherever Loki runs. Laptop, monitoring VM, whatever.
+    url = "http://10.81.85.131:3100/loki/api/v1/push"
+  }
+}

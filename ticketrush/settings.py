@@ -15,7 +15,7 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "load-test-only-never-in-production")
 DEBUG = False
 ALLOWED_HOSTS = ["*"]
 
-INSTALLED_APPS = ["tickets"]
+INSTALLED_APPS = ["tickets", "users"]
 
 if os.environ.get("FULL_MIDDLEWARE") == "1":
     INSTALLED_APPS += [

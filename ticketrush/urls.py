@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import include, path
 
 from tickets import views
 from tickets.metrics import metrics_view
@@ -13,4 +13,5 @@ urlpatterns = [
     path("events/<str:event_id>/stats", views.stats),
     path("events/<str:event_id>/purchase", views.purchase),
     path("metrics", metrics_view),
+    path("", include("users.urls")),
 ]

@@ -75,7 +75,7 @@ def list_users(request):
 
     return JsonResponse(
         {
-            "count": paginator.count,
+            # "count": paginator.count,
             "page": page.number,
             "page_size": page_size,
             "num_pages": paginator.num_pages,

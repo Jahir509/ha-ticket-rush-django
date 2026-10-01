@@ -1,0 +1,46 @@
+# gunicorn for the Django app, using manual/gunicorn.conf.py.
+# Installed by manual/install_service.sh to /etc/systemd/system/.
+#
+# Listens on 0.0.0.0:8001 (BIND in manual/gunicorn.conf.py).
+[Unit]
+Description=Ticket Rush (Django) - gunicorn
+After=network-online.target postgresql.service valkey.service redis.service
+Wants=network-online.target
+# Never run next to the deploy.sh unit; starting this one stops that one.
+Conflicts=ticketrush-dj-web.service
+
+[Service]
+# gunicorn tells systemd itself when it is ready.
+Type=notify
+NotifyAccess=main
+User=ticketrush
+Group=ticketrush
+WorkingDirectory=/opt/ha-ticket-rush-django
+
+# /run/ticketrush-dj, owned by ticketrush, emptied on every stop.
+RuntimeDirectory=ticketrush-dj
+RuntimeDirectoryMode=0755
+# Overrides PROMETHEUS_DIR in gunicorn.conf.py so metric files live in /run.
+Environment=PROMETHEUS_MULTIPROC_DIR=/run/ticketrush-dj/prometheus
+Environment=PYTHONUNBUFFERED=1
+# DB / Valkey settings come from /opt/ha-ticket-rush-django/.env, which
+# gunicorn.conf.py loads. Override single values here if needed, e.g.:
+# Environment=WORKERS=8
+
+# python -m gunicorn rather than .venv/bin/gunicorn: the venv python is a
+# symlink to /usr/bin/python3, so SELinux lets systemd run it.
+ExecStart=/opt/ha-ticket-rush-django/.venv/bin/python -m gunicorn -c manual/gunicorn.conf.py
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=mixed
+TimeoutStopSec=35
+Restart=on-failure
+RestartSec=2
+LimitNOFILE=65536
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

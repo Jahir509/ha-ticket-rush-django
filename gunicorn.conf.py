@@ -55,29 +55,34 @@ errorlog = "-"
 loglevel = "warning"
 
 
-# Append these to gunicorn.conf.py.
+# Prometheus multiprocess mode. PROMETHEUS_MULTIPROC_DIR is set by the
+# systemd unit; run by hand without it, both hooks do nothing and /metrics
+# falls back to the single-process registry.
 #
 # Without child_exit, every worker that dies leaves its metric files behind
 # forever. MultiProcessCollector keeps summing them, so counters only ever
 # climb and a restart looks like a traffic spike. mark_process_dead cleans
-# up the counter and histogram files of that pid.
- 
+# up the files of that pid.
+
 def child_exit(server, worker):
+    if not os.environ.get("PROMETHEUS_MULTIPROC_DIR"):
+        return
     from prometheus_client import multiprocess
     multiprocess.mark_process_dead(worker.pid)
- 
- 
+
+
 def on_starting(server):
-    # Wipe stale files from a previous run. RuntimeDirectory already clears
+    # Create the directory before any worker imports prometheus_client, and
+    # wipe stale files from a previous run. RuntimeDirectory already clears
     # /run on stop, but this also covers a crash-restart.
     import glob
-    import os
- 
+
     d = os.environ.get("PROMETHEUS_MULTIPROC_DIR")
-    if d and os.path.isdir(d):
-        for f in glob.glob(os.path.join(d, "*.db")):
-            try:
-                os.remove(f)
-            except OSError:
-                pass
- 
+    if not d:
+        return
+    os.makedirs(d, exist_ok=True)
+    for f in glob.glob(os.path.join(d, "*.db")):
+        try:
+            os.remove(f)
+        except OSError:
+            pass

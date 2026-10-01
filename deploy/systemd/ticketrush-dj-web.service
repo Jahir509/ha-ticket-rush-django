@@ -19,6 +19,9 @@ EnvironmentFile=/opt/ha-ticket-rush-django/.env
 # Creates /run/ticketrush-dj for the socket, owned by the service user.
 RuntimeDirectory=ticketrush-dj
 RuntimeDirectoryMode=0755
+# Each worker writes its metrics here and /metrics sums them. Without it a
+# scrape sees only the one worker that happened to answer.
+Environment=PROMETHEUS_MULTIPROC_DIR=/run/ticketrush-dj/prometheus
 # Start through the venv's python (a symlink to /usr/bin/python3, labelled
 # bin_t) rather than the .venv/bin/gunicorn script, so SELinux never has to
 # allow systemd to execute a file under /opt.

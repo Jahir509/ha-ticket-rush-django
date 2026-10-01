@@ -16,6 +16,14 @@ import os
 # the problem simply does not arise.
 bind = os.environ.get("BIND", "unix:/run/ticketrush-dj/gunicorn.sock")
 
+# gunicorn 26's control socket (for gunicornc) defaults to $HOME/.gunicorn/.
+# The service user's home is the root-owned /opt/ha-ticket-rush-django, so
+# that fails with EACCES. Under systemd, RUNTIME_DIRECTORY is the unit's
+# RuntimeDirectory (/run/ticketrush-dj), owned by the service user. Run by
+# hand it is unset and gunicorn's default is fine.
+if os.environ.get("RUNTIME_DIRECTORY"):
+    control_socket = os.path.join(os.environ["RUNTIME_DIRECTORY"], "gunicorn.ctl")
+
 # Sync workers are processes that each serve one request at a time, so
 # concurrency IS worker count. Little's Law: concurrency = rps x latency,
 # and at 9,000 rps with 1.5 ms responses that is ~14. gunicorn's classic

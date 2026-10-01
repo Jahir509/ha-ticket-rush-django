@@ -68,12 +68,13 @@ class PrometheusMiddleware:
 
         IN_FLIGHT.inc()
         start = time.perf_counter()
+        # Set before the call: a gunicorn timeout raises SystemExit, which
+        # "except Exception" does not catch, and the finally block below
+        # would then hit an unbound name.
+        status = 500
         try:
             response = self.get_response(request)
             status = response.status_code
-        except Exception:
-            status = 500
-            raise
         finally:
             elapsed = time.perf_counter() - start
             IN_FLIGHT.dec()

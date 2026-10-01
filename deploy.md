@@ -45,6 +45,7 @@ orders into Postgres in batches. Web requests never touch Postgres.
 |---|---|
 | `scripts/create_pgdb.sh` | Creates the Postgres role and database named in `.env`. Safe to re-run. |
 | `scripts/deploy.sh` | Copies the checkout to `/opt/ha-ticket-rush-django`, installs dependencies, migrates, installs and restarts the services. Safe to re-run. |
+| `scripts/deploy_only_web.sh` | Same as `deploy.sh`, but installs and runs only the web service (gunicorn). Stops and disables any drain instance on the host. |
 | `deploy/systemd/ticketrush-dj-web.service` | systemd unit for gunicorn (the web server). |
 | `deploy/systemd/ticketrush-dj-drain@.service` | systemd unit template for the drain. `@1` runs worker `drain-1`, `@2` runs `drain-2`, and so on. |
 | `run.md` | Running everything by hand for development. |

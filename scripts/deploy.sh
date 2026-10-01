@@ -13,6 +13,10 @@
 #   3. pip installs requirements.txt and runs migrations
 #   4. installs the units from deploy/systemd and restarts them
 #
+# --web-only (or scripts/deploy_only_web.sh) installs and runs gunicorn
+# only. Any drain instance on this host is stopped and disabled, for web
+# nodes behind a load balancer while the drain runs somewhere else.
+#
 # Re-executes itself under sudo when not run as root.
 set -euo pipefail
 
@@ -21,6 +25,14 @@ APP_USER=ticketrush
 PYTHON=${PYTHON:-python3}
 WEB_UNIT=ticketrush-dj-web.service
 DRAIN_UNIT=ticketrush-dj-drain@.service
+
+WEB_ONLY=0
+for arg in "$@"; do
+  case $arg in
+    --web-only) WEB_ONLY=1 ;;
+    *) echo "Unknown option: $arg" >&2; exit 2 ;;
+  esac
+done
 
 if [ "$(id -u)" -ne 0 ]; then
   exec sudo --preserve-env=PYTHON "$0" "$@"
@@ -90,7 +102,7 @@ export PIP_ROOT_USER_ACTION=ignore PIP_DISABLE_PIP_VERSION_CHECK=1
 "$DEST/.venv/bin/python" -m pip install --quiet -r "$DEST/requirements.txt"
 # The service user cannot write __pycache__ into root-owned dirs, so
 # compile here once instead of on every worker start.
-"$DEST/.venv/bin/python" -m compileall -q "$DEST/ticketrush" "$DEST/tickets"
+"$DEST/.venv/bin/python" -m compileall -q "$DEST/ticketrush" "$DEST/tickets" "$DEST/users"
 
 # Fresh files under /opt already get the right label, but a copied or
 # moved-in file keeps its old one. Cheap to reset every time.
@@ -107,15 +119,37 @@ log "Running migrations"
 
 log "Installing systemd units"
 install -m 644 "$DEST/deploy/systemd/$WEB_UNIT" /etc/systemd/system/
-install -m 644 "$DEST/deploy/systemd/$DRAIN_UNIT" /etc/systemd/system/
+if [ "$WEB_ONLY" -eq 0 ]; then
+  install -m 644 "$DEST/deploy/systemd/$DRAIN_UNIT" /etc/systemd/system/
+fi
 systemctl daemon-reload
 
 log "Restarting services"
-systemctl enable --quiet "$WEB_UNIT" ticketrush-dj-drain@1.service
+systemctl enable --quiet "$WEB_UNIT"
 systemctl restart "$WEB_UNIT"
-# Every drain instance that is loaded, so extra ones started by hand
-# (drain@2, drain@3, ...) pick up the new code too.
-systemctl restart 'ticketrush-dj-drain@*.service' ticketrush-dj-drain@1.service
+if [ "$WEB_ONLY" -eq 0 ]; then
+  systemctl enable --quiet ticketrush-dj-drain@1.service
+  # Every drain instance that is loaded, so extra ones started by hand
+  # (drain@2, drain@3, ...) pick up the new code too.
+  systemctl restart 'ticketrush-dj-drain@*.service' ticketrush-dj-drain@1.service
+  status_units=("$WEB_UNIT" 'ticketrush-dj-drain@*.service')
+  journal_units=(-u "$WEB_UNIT" -u 'ticketrush-dj-drain@*')
+else
+  # Running ones show up in list-units, enabled-but-stopped ones only as
+  # symlinks in a .wants directory. disable needs exact names, no globs.
+  mapfile -t drains < <(
+    {
+      systemctl list-units --all --plain --no-legend 'ticketrush-dj-drain@*.service' | awk '{print $1}'
+      find /etc/systemd/system -path '*.wants/ticketrush-dj-drain@*.service' -printf '%f\n'
+    } | grep -v '^ticketrush-dj-drain@\.service$' | sort -u
+  )
+  if [ ${#drains[@]} -gt 0 ]; then
+    echo "    Web-only: stopping and disabling ${drains[*]}"
+    systemctl disable --now --quiet "${drains[@]}"
+  fi
+  status_units=("$WEB_UNIT")
+  journal_units=(-u "$WEB_UNIT")
+fi
 
 log "Checking /readyz"
 bind=$(sed -n 's/^BIND=//p' "$DEST/.env" | tail -n1)
@@ -128,7 +162,7 @@ fi
 for _ in $(seq 1 20); do
   if "${check[@]}" 2>/dev/null; then
     echo
-    systemctl --no-pager --lines=0 status "$WEB_UNIT" 'ticketrush-dj-drain@*.service' || true
+    systemctl --no-pager --lines=0 status "${status_units[@]}" || true
     log "Deployed."
     exit 0
   fi
@@ -136,5 +170,5 @@ for _ in $(seq 1 20); do
 done
 
 echo "readyz did not answer. Recent logs:" >&2
-journalctl --no-pager -n 30 -u "$WEB_UNIT" -u 'ticketrush-dj-drain@*' >&2
+journalctl --no-pager -n 30 "${journal_units[@]}" >&2
 exit 1

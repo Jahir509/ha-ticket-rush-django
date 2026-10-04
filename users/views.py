@@ -25,7 +25,7 @@ DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
 # OFFSET walks every skipped row: ~1 ms per 1,000 rows, so 50M rows is
 # ~45 s, past the worker timeout. Deeper than this, use ?after=<id>.
-MAX_OFFSET = 100_000
+MAX_OFFSET = 100_000_000
 
 
 # ----------------------------------------------------------------- routes

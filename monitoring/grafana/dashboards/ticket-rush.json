@@ -1,299 +1,651 @@
 {
-  "uid": "ticket-rush-ha",
-  "title": "Ticket Rush — HA Overview",
-  "tags": ["ticket-rush", "ha-testing"],
+  "uid": "ticket-rush-dj",
+  "title": "Ticket Rush — Django",
+  "tags": [
+    "ticket-rush",
+    "django"
+  ],
   "timezone": "browser",
   "schemaVersion": 39,
   "version": 1,
   "refresh": "5s",
-  "time": { "from": "now-15m", "to": "now" },
-  "templating": { "list": [] },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "job",
+        "label": "Job",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "ticketrush-prom"
+        },
+        "query": {
+          "query": "label_values(http_requests_total, job)",
+          "refId": "job"
+        },
+        "definition": "label_values(http_requests_total, job)",
+        "refresh": 1,
+        "current": {
+          "text": "ticketrush-dj",
+          "value": "ticketrush-dj"
+        },
+        "includeAll": false,
+        "multi": false
+      }
+    ]
+  },
   "panels": [
     {
+      "id": 1,
       "type": "stat",
       "title": "Requests / sec",
-      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "ticketrush-prom" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ticketrush-prom"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 5,
+        "h": 5
+      },
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "ticketrush-prom"
+          },
           "refId": "A",
-          "expr": "sum(rate(http_requests_total{job=\"ticket-rush\"}[1m]))",
-          "legendFormat": "req/s"
+          "expr": "sum(rate(http_requests_total{job=\"$job\"}[$__rate_interval]))",
+          "legendFormat": "req/s",
+          "range": true
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps",
-          "decimals": 1,
-          "color": { "mode": "fixed", "fixedColor": "#5794F2" }
+          "unit": "reqps"
         },
         "overrides": []
       },
       "options": {
-        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
         "colorMode": "value",
-        "textMode": "auto",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+        "graphMode": "area"
       }
     },
     {
+      "id": 2,
       "type": "stat",
-      "title": "Error rate (5xx)",
-      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "ticketrush-prom" },
+      "title": "5xx error rate",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ticketrush-prom"
+      },
+      "gridPos": {
+        "x": 5,
+        "y": 0,
+        "w": 5,
+        "h": 5
+      },
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "ticketrush-prom"
+          },
           "refId": "A",
-          "expr": "100 * sum(rate(http_requests_total{job=\"ticket-rush\",status=\"5xx\"}[1m])) / clamp_min(sum(rate(http_requests_total{job=\"ticket-rush\"}[1m])), 0.001)",
-          "legendFormat": "5xx %"
+          "expr": "100 * sum(rate(http_requests_total{job=\"$job\",status=~\"5..\"}[$__rate_interval])) / clamp_min(sum(rate(http_requests_total{job=\"$job\"}[$__rate_interval])), 0.001)",
+          "legendFormat": "5xx %",
+          "range": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "decimals": 2,
-          "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 0.1 },
-              { "color": "red", "value": 1 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
             ]
           }
         },
         "overrides": []
       },
       "options": {
-        "graphMode": "area",
-        "colorMode": "background",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
       }
     },
     {
+      "id": 3,
       "type": "stat",
       "title": "p99 latency",
-      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "ticketrush-prom" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ticketrush-prom"
+      },
+      "gridPos": {
+        "x": 10,
+        "y": 0,
+        "w": 5,
+        "h": 5
+      },
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "ticketrush-prom"
+          },
           "refId": "A",
-          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_highr_seconds_bucket{job=\"ticket-rush\"}[5m])) by (le))",
-          "legendFormat": "p99"
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"$job\"}[$__rate_interval])))",
+          "legendFormat": "p99",
+          "range": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "decimals": 3,
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 0.25 },
-              { "color": "red", "value": 0.5 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.1
+              },
+              {
+                "color": "red",
+                "value": 0.5
+              }
             ]
           }
         },
         "overrides": []
       },
       "options": {
-        "graphMode": "area",
-        "colorMode": "background",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
       }
     },
     {
+      "id": 4,
       "type": "stat",
-      "title": "Memory (RSS)",
-      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "ticketrush-prom" },
+      "title": "In-flight requests",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ticketrush-prom"
+      },
+      "gridPos": {
+        "x": 15,
+        "y": 0,
+        "w": 5,
+        "h": 5
+      },
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "ticketrush-prom"
+          },
           "refId": "A",
-          "expr": "process_resident_memory_bytes{job=\"ticket-rush\"}",
-          "legendFormat": "RSS"
+          "expr": "sum(http_requests_in_flight{job=\"$job\"})",
+          "legendFormat": "in flight",
+          "range": true
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "bytes",
-          "color": { "mode": "fixed", "fixedColor": "#B877D9" }
+          "unit": "short"
         },
         "overrides": []
       },
       "options": {
-        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
         "colorMode": "value",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+        "graphMode": "area"
       }
     },
     {
+      "id": 5,
+      "type": "stat",
+      "title": "Target up",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ticketrush-prom"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 0,
+        "w": 4,
+        "h": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "ticketrush-prom"
+          },
+          "refId": "A",
+          "expr": "up{job=\"$job\"}",
+          "legendFormat": "{{instance}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 6,
       "type": "timeseries",
       "title": "Throughput by endpoint",
-      "description": "প্রতিটা route-এ সেকেন্ডে কত রিকোয়েস্ট আসছে",
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 5 },
-      "datasource": { "type": "prometheus", "uid": "ticketrush-prom" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ticketrush-prom"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 9
+      },
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "ticketrush-prom"
+          },
           "refId": "A",
-          "expr": "sum(rate(http_requests_total{job=\"ticket-rush\"}[1m])) by (handler)",
-          "legendFormat": "{{handler}}"
+          "expr": "sum by (handler) (rate(http_requests_total{job=\"$job\"}[$__rate_interval]))",
+          "legendFormat": "{{handler}}",
+          "range": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "reqps",
           "custom": {
-            "drawStyle": "line",
+            "fillOpacity": 10,
             "lineWidth": 2,
-            "fillOpacity": 12,
-            "showPoints": "never",
-            "spanNulls": true
+            "showPoints": "never"
           }
         },
         "overrides": []
       },
       "options": {
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       }
     },
     {
+      "id": 7,
       "type": "timeseries",
-      "title": "Purchase outcome — confirmed vs sold out",
-      "description": "2xx = টিকিট পেয়েছে, 4xx = sold out (409), 5xx = সিস্টেম ফেল",
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 5 },
-      "datasource": { "type": "prometheus", "uid": "ticketrush-prom" },
+      "title": "Responses by status code",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ticketrush-prom"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 12,
+        "h": 9
+      },
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "ticketrush-prom"
+          },
           "refId": "A",
-          "expr": "sum(rate(http_requests_total{job=\"ticket-rush\",handler=~\".*purchase.*\"}[1m])) by (status)",
-          "legendFormat": "{{status}}"
+          "expr": "sum by (status) (rate(http_requests_total{job=\"$job\"}[$__rate_interval]))",
+          "legendFormat": "{{status}}",
+          "range": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "reqps",
           "custom": {
-            "drawStyle": "line",
+            "fillOpacity": 10,
             "lineWidth": 2,
-            "fillOpacity": 25,
-            "stacking": { "mode": "normal", "group": "A" },
             "showPoints": "never"
           }
         },
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "2xx" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }]
-          },
-          {
-            "matcher": { "id": "byName", "options": "4xx" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }]
-          },
-          {
-            "matcher": { "id": "byName", "options": "5xx" },
-            "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }]
-          }
-        ]
+        "overrides": []
       },
       "options": {
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       }
     },
     {
+      "id": 8,
       "type": "timeseries",
       "title": "Latency percentiles",
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 14 },
-      "datasource": { "type": "prometheus", "uid": "ticketrush-prom" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ticketrush-prom"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 9
+      },
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "ticketrush-prom"
+          },
           "refId": "A",
-          "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_highr_seconds_bucket{job=\"ticket-rush\"}[1m])) by (le))",
-          "legendFormat": "p50"
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"$job\"}[$__rate_interval])))",
+          "legendFormat": "p50",
+          "range": true
         },
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "ticketrush-prom"
+          },
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_highr_seconds_bucket{job=\"ticket-rush\"}[1m])) by (le))",
-          "legendFormat": "p95"
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"$job\"}[$__rate_interval])))",
+          "legendFormat": "p95",
+          "range": true
         },
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "ticketrush-prom"
+          },
           "refId": "C",
-          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_highr_seconds_bucket{job=\"ticket-rush\"}[1m])) by (le))",
-          "legendFormat": "p99"
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"$job\"}[$__rate_interval])))",
+          "legendFormat": "p99",
+          "range": true
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "s",
           "custom": {
-            "drawStyle": "line",
+            "fillOpacity": 10,
             "lineWidth": 2,
-            "fillOpacity": 0,
             "showPoints": "never"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "transparent", "value": null },
-              { "color": "red", "value": 0.5 }
-            ]
-          },
-          "custom.thresholdsStyle": { "mode": "dashed" }
+          }
         },
         "overrides": []
       },
       "options": {
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       }
     },
     {
+      "id": 9,
       "type": "timeseries",
-      "title": "Process health — CPU & memory",
-      "description": "লোড টেস্টের পরেও memory না কমলে leak-এর সন্দেহ",
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 14 },
-      "datasource": { "type": "prometheus", "uid": "ticketrush-prom" },
+      "title": "Latency p95 by endpoint",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ticketrush-prom"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 9
+      },
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "ticketrush-prom"
+          },
           "refId": "A",
-          "expr": "rate(process_cpu_seconds_total{job=\"ticket-rush\"}[1m])",
-          "legendFormat": "CPU cores"
-        },
-        {
-          "refId": "B",
-          "expr": "process_resident_memory_bytes{job=\"ticket-rush\"}",
-          "legendFormat": "RSS"
-        },
-        {
-          "refId": "C",
-          "expr": "process_open_fds{job=\"ticket-rush\"}",
-          "legendFormat": "open FDs"
+          "expr": "histogram_quantile(0.95, sum by (le, handler) (rate(http_request_duration_seconds_bucket{job=\"$job\"}[$__rate_interval])))",
+          "legendFormat": "{{handler}}",
+          "range": true
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" }
-        },
-        "overrides": [
-          {
-            "matcher": { "id": "byName", "options": "RSS" },
-            "properties": [
-              { "id": "unit", "value": "bytes" },
-              { "id": "custom.axisPlacement", "value": "right" }
-            ]
-          },
-          {
-            "matcher": { "id": "byName", "options": "CPU cores" },
-            "properties": [{ "id": "unit", "value": "short" }]
+          "unit": "s",
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "never"
           }
-        ]
+        },
+        "overrides": []
       },
       "options": {
-        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] },
-        "tooltip": { "mode": "multi", "sort": "desc" }
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Purchase outcome by status",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ticketrush-prom"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "ticketrush-prom"
+          },
+          "refId": "A",
+          "expr": "sum by (status) (rate(http_requests_total{job=\"$job\",handler=~\".*purchase.*\"}[$__rate_interval]))",
+          "legendFormat": "{{status}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "In-flight requests (busy workers)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "ticketrush-prom"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 23,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "ticketrush-prom"
+          },
+          "refId": "A",
+          "expr": "sum(http_requests_in_flight{job=\"$job\"})",
+          "legendFormat": "in flight",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       }
     }
   ]

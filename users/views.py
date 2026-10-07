@@ -2,7 +2,7 @@
 Plain function views for users CRUD, same style as tickets.views: no DRF,
 no class-based or generic views, JSON in and out.
 
-    GET    /users              list, paginated (?page=1&page_size=20, or ?after=<id>)
+    GET    /users              list, paginated (?page=1&page_size=20)
     POST   /users              create
     GET    /users/<id>         retrieve
     PUT    /users/<id>         full update, every writable field required
@@ -23,9 +23,6 @@ WRITABLE_FIELDS = ("email", "first_name", "last_name")
 
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
-# OFFSET walks every skipped row: ~1 ms per 1,000 rows, so 50M rows is
-# ~45 s, past the worker timeout. Deeper than this, use ?after=<id>.
-MAX_OFFSET = 100_000_000
 
 
 # ----------------------------------------------------------------- routes
@@ -61,9 +58,13 @@ def list_users(request):
     gunicorn worker timeout. Fetch one row past the page instead to know
     whether a next page exists.
 
-    ?page=N uses OFFSET, fine for the first pages but it still walks N *
-    page_size index entries. ?after=<id> (the "next_after" of the previous
-    response) is an index seek and costs the same at any depth.
+    No OFFSET either: it walks every skipped index entry, so deep pages time
+    out. ?page=N is turned into an id cursor instead. ids are dense (bulk
+    COPY, consecutive ranges), so page N starts at first_id + (N - 1) *
+    page_size and is fetched with an index seek, the same cost at any depth.
+
+    Gaps in id (deleted rows) make that page shorter rather than shifting
+    rows onto the next page, so no row is skipped or shown twice.
     """
     try:
         page_number = _positive_int(request.GET.get("page"), 1)
@@ -71,41 +72,31 @@ def list_users(request):
             _positive_int(request.GET.get("page_size"), DEFAULT_PAGE_SIZE),
             MAX_PAGE_SIZE,
         )
-        after = request.GET.get("after")
-        after = int(after) if after not in (None, "") else None
     except ValueError:
         return JsonResponse(
-            {"detail": "page, page_size and after must be integers"},
+            {"detail": "page and page_size must be positive integers"},
             status=400,
         )
 
     qs = User.objects.order_by("id")
-    if after is not None:
-        rows = list(qs.filter(id__gt=after)[: page_size + 1])
-    else:
-        offset = (page_number - 1) * page_size
-        if offset > MAX_OFFSET:
-            return JsonResponse(
-                {"detail": f"page too deep (offset > {MAX_OFFSET}); "
-                           "use ?after=<id> from next_after instead"},
-                status=400,
-            )
-        rows = list(qs[offset : offset + page_size + 1])
+    first_id = qs.values_list("id", flat=True).first()
+    rows, has_next = [], False
+    if first_id is not None:
+        start = first_id + (page_number - 1) * page_size
+        end = start + page_size
+        # [start, end) holds at most page_size ids, so row page_size + 1, if
+        # any, is past it and proves a next page exists.
+        fetched = list(qs.filter(id__gte=start)[: page_size + 1])
+        rows = [user for user in fetched if user.id < end]
+        has_next = len(fetched) > len(rows)
 
-    has_next = len(rows) > page_size
-    rows = rows[:page_size]
-
-    body = {
+    return JsonResponse({
+        "page": page_number,
         "page_size": page_size,
-        "next_after": rows[-1].id if has_next else None,
+        "next": page_number + 1 if has_next else None,
+        "previous": page_number - 1 if page_number > 1 else None,
         "results": [user.to_dict() for user in rows],
-    }
-    if after is None:
-        body["page"] = page_number
-        next_ok = has_next and page_number * page_size <= MAX_OFFSET
-        body["next"] = page_number + 1 if next_ok else None
-        body["previous"] = page_number - 1 if page_number > 1 else None
-    return JsonResponse(body)
+    })
 
 
 def create_user(request):

@@ -1,3 +1,5 @@
+name: ticketrush-monitoring
+
 services:
   prometheus:
     image: prom/prometheus:v3.1.0
@@ -8,12 +10,9 @@ services:
       - --web.enable-lifecycle
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus-data:/prometheus
+      - prom-data:/prometheus
     ports:
       - "9090:9090"
-    extra_hosts:
-      # Linux-এ container থেকে host মেশিনে পৌঁছানোর রাস্তা
-      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   grafana:
@@ -24,9 +23,11 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: admin
-      GF_USERS_DEFAULT_THEME: dark
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # If Grafana itself is served through the Cloudflare tunnel, set this to
+      # the public URL so redirects and links point there, e.g.
+      # GF_SERVER_ROOT_URL: https://grafana.example.com
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
@@ -35,16 +36,6 @@ services:
       - "3000:3000"
     restart: unless-stopped
 
-  loki:
-    image: docker.io/grafana/loki:3.3.2
-    command: -config.file=/etc/loki/local-config.yaml
-    ports:
-      - "3100:3100"
-    volumes:
-      - loki-data:/loki
-    restart: unless-stopped
-
 volumes:
-  prometheus-data:
+  prom-data:
   grafana-data:
-  loki-data:

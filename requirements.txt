@@ -11,3 +11,4 @@ python-dotenv==1.2.3
 redis==8.1.0
 sqlparse==0.6.0
 typing_extensions==4.16.0
+psutil>=5.9

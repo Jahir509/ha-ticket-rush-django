@@ -10,6 +10,7 @@ no class-based or generic views, JSON in and out.
     DELETE /users/<id>         delete
 """
 import json
+import time
 
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
@@ -21,8 +22,17 @@ from .models import User
 # id and created_at are set by the server, never by the client.
 WRITABLE_FIELDS = ("email", "first_name", "last_name")
 
+# Columns the list returns. .values() hands back plain dicts straight from
+# the cursor, skipping one model object per row.
+LIST_FIELDS = ("id", "email", "first_name", "last_name", "created_at")
+
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
+
+# The smallest id only changes if the very first user is deleted, so each
+# worker asks Postgres at most once a minute instead of on every request.
+FIRST_ID_TTL = 60.0
+_first_id_cache = {"value": None, "at": 0.0}
 
 
 # ----------------------------------------------------------------- routes
@@ -54,14 +64,13 @@ def user_detail(request, user_id):
 
 def list_users(request):
     """
-    No COUNT(*): on a 50M-row table it is a full scan that outlives the
-    gunicorn worker timeout. Fetch one row past the page instead to know
-    whether a next page exists.
+    No COUNT(*) and no OFFSET: both walk the table, so deep pages would
+    time out. ids are dense (bulk COPY, consecutive ranges), so page N
+    starts at first_id + (N - 1) * page_size and is one index seek, the
+    same cost at any depth.
 
-    No OFFSET either: it walks every skipped index entry, so deep pages time
-    out. ?page=N is turned into an id cursor instead. ids are dense (bulk
-    COPY, consecutive ranges), so page N starts at first_id + (N - 1) *
-    page_size and is fetched with an index seek, the same cost at any depth.
+    One query per request: first_id is cached per worker, and the page
+    fetches one row past its range to learn whether a next page exists.
 
     Gaps in id (deleted rows) make that page shorter rather than shifting
     rows onto the next page, so no row is skipped or shown twice.
@@ -78,16 +87,19 @@ def list_users(request):
             status=400,
         )
 
-    qs = User.objects.order_by("id")
-    first_id = qs.values_list("id", flat=True).first()
+    first_id = _first_user_id()
     rows, has_next = [], False
     if first_id is not None:
         start = first_id + (page_number - 1) * page_size
         end = start + page_size
         # [start, end) holds at most page_size ids, so row page_size + 1, if
         # any, is past it and proves a next page exists.
-        fetched = list(qs.filter(id__gte=start)[: page_size + 1])
-        rows = [user for user in fetched if user.id < end]
+        fetched = list(
+            User.objects.filter(id__gte=start)
+            .order_by("id")
+            .values(*LIST_FIELDS)[: page_size + 1]
+        )
+        rows = [row for row in fetched if row["id"] < end]
         has_next = len(fetched) > len(rows)
 
     return JsonResponse({
@@ -95,7 +107,7 @@ def list_users(request):
         "page_size": page_size,
         "next": page_number + 1 if has_next else None,
         "previous": page_number - 1 if page_number > 1 else None,
-        "results": [user.to_dict() for user in rows],
+        "results": rows,
     })
 
 
@@ -119,6 +131,17 @@ def update_user(request, user, partial):
 
 
 # ---------------------------------------------------------------- helpers
+
+def _first_user_id():
+    now = time.monotonic()
+    if (_first_id_cache["value"] is None
+            or now - _first_id_cache["at"] > FIRST_ID_TTL):
+        _first_id_cache["value"] = (
+            User.objects.order_by("id").values_list("id", flat=True).first()
+        )
+        _first_id_cache["at"] = now
+    return _first_id_cache["value"]
+
 
 def _read_body(request, partial):
     """

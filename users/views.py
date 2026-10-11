@@ -8,11 +8,22 @@ no class-based or generic views, JSON in and out.
     PUT    /users/<id>         full update, every writable field required
     PATCH  /users/<id>         partial update
     DELETE /users/<id>         delete
+
+Every write is exactly one SQL statement:
+
+    POST          INSERT ... RETURNING id
+    PUT / PATCH   UPDATE ... WHERE id = %s RETURNING ...
+    DELETE        DELETE ... WHERE id = %s   (no BEGIN/COMMIT around it)
+
+No SELECT first to check that the email is free or that the row exists:
+Postgres already knows both. A duplicate email comes back as an
+IntegrityError (409), a missing row as zero rows (404).
 """
 import json
 import time
 
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, connection
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -34,6 +45,13 @@ MAX_PAGE_SIZE = 100
 FIRST_ID_TTL = 60.0
 _first_id_cache = {"value": None, "at": 0.0}
 
+# Quoted table and column names for the hand-written UPDATE. They come from
+# the model, never from the request.
+_q = connection.ops.quote_name
+_TABLE = _q(User._meta.db_table)
+_COLUMN = {f: _q(User._meta.get_field(f).column) for f in LIST_FIELDS}
+_RETURNING = ", ".join(_COLUMN[f] for f in LIST_FIELDS)
+
 
 # ----------------------------------------------------------------- routes
 
@@ -48,16 +66,14 @@ def users(request):
 @csrf_exempt
 @require_http_methods(["GET", "PUT", "PATCH", "DELETE"])
 def user_detail(request, user_id):
-    user = User.objects.filter(pk=user_id).first()
-    if user is None:
-        return JsonResponse({"detail": "user not found"}, status=404)
-
     if request.method == "GET":
+        user = User.objects.filter(pk=user_id).first()
+        if user is None:
+            return _not_found()
         return JsonResponse(user.to_dict())
     if request.method == "DELETE":
-        user.delete()
-        return HttpResponse(status=204)
-    return update_user(request, user, partial=request.method == "PATCH")
+        return delete_user(user_id)
+    return update_user(request, user_id, partial=request.method == "PATCH")
 
 
 # ---------------------------------------------------------------- actions
@@ -115,19 +131,50 @@ def create_user(request):
     data, error = _read_body(request, partial=False)
     if error:
         return error
+    try:
+        user = User.objects.create(**data)          # one INSERT ... RETURNING id
+    except IntegrityError:
+        return _conflict()
+    return JsonResponse(user.to_dict(), status=201)
 
-    user = User(**data)
-    return _save(user, status=201)
 
-
-def update_user(request, user, partial):
+def update_user(request, user_id, partial):
     data, error = _read_body(request, partial=partial)
     if error:
         return error
+    if not data:
+        # PATCH with nothing to change: answer with the row as it is.
+        user = User.objects.filter(pk=user_id).first()
+        return JsonResponse(user.to_dict()) if user else _not_found()
 
-    for field, value in data.items():
-        setattr(user, field, value)
-    return _save(user, status=200)
+    # Only the columns the client sent. Untouched indexed columns (email)
+    # stay out of the statement, which lets Postgres do a cheaper in-page
+    # (HOT) update when only names change.
+    assignments = ", ".join(f"{_COLUMN[f]} = %s" for f in data)
+    sql = (f"UPDATE {_TABLE} SET {assignments} "
+           f"WHERE {_COLUMN['id']} = %s RETURNING {_RETURNING}")
+    try:
+        with connection.cursor() as cur:
+            cur.execute(sql, [*data.values(), int(user_id)])
+            row = cur.fetchone()
+    except IntegrityError:
+        return _conflict()
+    if row is None:
+        return _not_found()
+    return JsonResponse(_row_to_dict(row))
+
+
+def delete_user(user_id):
+    # Plain DELETE in autocommit: one round trip. Django's QuerySet.delete()
+    # would wrap even a single-row delete in BEGIN/COMMIT, three round trips.
+    # It also skips pre_delete/post_delete signals; add them back here if a
+    # receiver is ever registered for User.
+    with connection.cursor() as cur:
+        cur.execute(f"DELETE FROM {_TABLE} WHERE {_COLUMN['id']} = %s", [int(user_id)])
+        deleted = cur.rowcount
+    if not deleted:
+        return _not_found()
+    return HttpResponse(status=204)
 
 
 # ---------------------------------------------------------------- helpers
@@ -146,7 +193,11 @@ def _first_user_id():
 def _read_body(request, partial):
     """
     Returns (data, None) on success or (None, JsonResponse) on failure.
-    Only WRITABLE_FIELDS are picked up; anything else in the body is ignored.
+
+    Only WRITABLE_FIELDS are picked up; anything else in the body is
+    ignored. Each value is checked by its model field (email format,
+    max_length, blank) without touching the database; uniqueness is left
+    to the unique index.
     """
     try:
         body = json.loads(request.body or b"{}")
@@ -167,7 +218,10 @@ def _read_body(request, partial):
         if not isinstance(value, str):
             errors[field] = ["Must be a string."]
             continue
-        data[field] = value.strip()
+        try:
+            data[field] = User._meta.get_field(field).clean(value.strip(), None)
+        except ValidationError as exc:
+            errors[field] = exc.messages
 
     if errors:
         return None, JsonResponse(
@@ -176,16 +230,21 @@ def _read_body(request, partial):
     return data, None
 
 
-def _save(user, status):
-    try:
-        user.full_clean()
-    except ValidationError as exc:
-        return JsonResponse(
-            {"detail": "validation failed", "errors": exc.message_dict},
-            status=400,
-        )
-    user.save()
-    return JsonResponse(user.to_dict(), status=status)
+def _row_to_dict(row):
+    out = {}
+    for name, value in zip(LIST_FIELDS, row):
+        out[name] = value.isoformat() if hasattr(value, "isoformat") else value
+    return out
+
+
+def _not_found():
+    return JsonResponse({"detail": "user not found"}, status=404)
+
+
+def _conflict():
+    return JsonResponse(
+        {"detail": "a user with this email already exists"}, status=409
+    )
 
 
 def _positive_int(raw, default):

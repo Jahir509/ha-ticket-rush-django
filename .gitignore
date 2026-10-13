@@ -22,3 +22,5 @@ media/
 *.log
 
 k6/results**
+
+test/results/

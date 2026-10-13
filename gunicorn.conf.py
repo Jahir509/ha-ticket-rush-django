@@ -33,7 +33,8 @@ workers = int(os.environ.get("WORKERS", multiprocessing.cpu_count() * 2 + 1))
 
 # The point of the experiment. gthread or gevent would make this a
 # different test.
-worker_class = "sync"
+worker_class = os.environ.get("WORKER_CLASS", "sync")
+threads = int(os.environ.get("THREADS", "1"))
 
 # False so each worker builds its own Valkey pool after fork. Preloading
 # would share one set of sockets across every child and interleave replies
